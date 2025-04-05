@@ -9,13 +9,16 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^18",
-    "react-dom": "^18",
-    "date-fns": "^3",
-    "lucide-react": "^0.320"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4",
-    "vite": "^5"
+  "react": "^18",
+  "react-dom": "^18",
+  "date-fns": "^3",
+  "lucide-react": "^0.320"
+},
+"devDependencies": {
+  "@vitejs/plugin-react": "^4",
+  "vite": "^5",
+  "tailwindcss": "^3.4",
+  "postcss": "^8.4",
+  "autoprefixer": "^10.4"
   }
 }
