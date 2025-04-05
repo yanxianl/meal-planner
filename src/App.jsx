@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { format, addDays, startOfWeek, isBefore, setHours, setMinutes } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -8,8 +8,16 @@ const mealDeadlines = [6, 9, 14];
 
 const MealPlanner = () => {
   const [currentWeek, setCurrentWeek] = useState(new Date());
-  const [data, setData] = useState({});
-  const [names, setNames] = useState([{ name: '', count: 1 }]);
+  const [data, setData] = useState(() => JSON.parse(localStorage.getItem('mealData')) || {});
+  const [names, setNames] = useState(() => JSON.parse(localStorage.getItem('mealNames')) || [{ name: '', count: 1 }]);
+
+  useEffect(() => {
+    localStorage.setItem('mealData', JSON.stringify(data));
+  }, [data]);
+
+  useEffect(() => {
+    localStorage.setItem('mealNames', JSON.stringify(names));
+  }, [names]);
 
   const startDay = startOfWeek(currentWeek, { weekStartsOn: 1 });
 
@@ -36,38 +44,38 @@ const MealPlanner = () => {
   };
 
   return (
-    <div className="p-4 font-sans">
-      <h2 className="text-2xl font-bold mb-4 text-center">升龙公司德合厂用餐计划表</h2>
-      <div className="flex items-center justify-between mb-4">
+    <div className="p-6 font-sans max-w-full overflow-x-auto">
+      <h2 className="text-3xl font-bold mb-6 text-center">升龙公司德合厂用餐计划表</h2>
+      <div className="flex items-center justify-between mb-6">
         <ChevronLeft className="cursor-pointer" onClick={() => setCurrentWeek(addDays(currentWeek, -7))} />
-        <span className="text-lg font-semibold">
+        <span className="text-xl font-semibold">
           {format(startDay, 'dd/MM/yyyy')} - {format(addDays(startDay, 6), 'dd/MM/yyyy')}
         </span>
         <ChevronRight className="cursor-pointer" onClick={() => setCurrentWeek(addDays(currentWeek, 7))} />
       </div>
 
-      <table className="w-full border-collapse text-center">
-        <thead>
-          <tr className="bg-gray-200">
+      <table className="min-w-full border border-gray-300">
+        <thead className="bg-gray-100">
+          <tr>
             <th className="border p-2" rowSpan={2}>姓名</th>
             <th className="border p-2" rowSpan={2}>用餐人数</th>
             {[...Array(7)].map((_, idx) => (
-              <th key={idx} className="border p-1" colSpan={3}>
+              <th key={idx} className="border p-2" colSpan={3}>
                 {format(addDays(startDay, idx), 'dd/MM EEE', { locale: zhCN })}
               </th>
             ))}
           </tr>
-          <tr className="bg-gray-200">
+          <tr>
             {[...Array(7)].map((_, idx) => (
               meals.map(meal => (
-                <th key={`${idx}-${meal}`} className="border p-1">{meal}</th>
+                <th key={`${idx}-${meal}`} className="border p-1 bg-gray-50">{meal}</th>
               ))
             ))}
           </tr>
         </thead>
         <tbody>
           {names.map((user, idx) => (
-            <tr key={idx}>
+            <tr key={idx} className="hover:bg-gray-50">
               <td className="border p-2">
                 <input
                   className="w-full"
@@ -87,7 +95,7 @@ const MealPlanner = () => {
                 meals.map((meal, mealIdx) => {
                   const day = addDays(startDay, dayIdx);
                   return (
-                    <td key={`${dayIdx}-${meal}`} className="border">
+                    <td key={`${dayIdx}-${meal}`} className="border p-1">
                       <input
                         type="checkbox"
                         disabled={!canCheck(day, mealIdx) || !user.name}
@@ -100,11 +108,11 @@ const MealPlanner = () => {
               ))}
             </tr>
           ))}
-          <tr>
-            <td className="border p-2 font-bold" colSpan={2}>合计人数</td>
+          <tr className="bg-gray-200 font-bold">
+            <td className="border p-2" colSpan={2}>合计人数</td>
             {[...Array(7)].map((_, dayIdx) => (
               meals.map((meal, mealIdx) => (
-                <td key={`total-${dayIdx}-${meal}`} className="border font-bold">
+                <td key={`total-${dayIdx}-${meal}`} className="border p-1">
                   {getMealCount(addDays(startDay, dayIdx), meal)}
                 </td>
               ))
@@ -113,7 +121,7 @@ const MealPlanner = () => {
         </tbody>
       </table>
       <button
-        className="mt-4 bg-green-500 text-white p-2 rounded"
+        className="mt-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
         onClick={() => setNames([...names, { name: '', count: 1 }])}
       >
         添加员工
