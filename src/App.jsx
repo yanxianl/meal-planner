@@ -1,3 +1,4 @@
+import { supabase } from './supabaseClient';
 import React, { useState, useEffect } from 'react';
 import { format, addDays, startOfWeek, isBefore, setHours, setMinutes } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
