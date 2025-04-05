@@ -76,21 +76,8 @@ const MealPlanner = () => {
         <tbody>
           {names.map((user, idx) => (
             <tr key={idx} className="hover:bg-gray-50">
-              <td className="border p-2">
-                <input
-                  className="w-full"
-                  value={user.name}
-                  placeholder="输入姓名"
-                  onChange={(e) => {
-                    const newNames = [...names];
-                    newNames[idx].name = e.target.value;
-                    setNames(newNames);
-                  }}
-                />
-              </td>
-              <td className="border p-2 cursor-pointer" onClick={() => updateCount(idx)}>
-                {user.count}
-              </td>
+              <td className="border p-2">{user.name || <span className="text-gray-400">未填写姓名</span>}</td>
+              <td className="border p-2">{user.count}</td>
               {[...Array(7)].map((_, dayIdx) => (
                 meals.map((meal, mealIdx) => {
                   const day = addDays(startDay, dayIdx);
@@ -98,7 +85,7 @@ const MealPlanner = () => {
                     <td key={`${dayIdx}-${meal}`} className="border p-1">
                       <input
                         type="checkbox"
-                        disabled={!canCheck(day, mealIdx) || !user.name}
+                        disabled={!canCheck(day, mealIdx)}
                         checked={data[`${idx}-${format(day, 'yyyy-MM-dd')}-${meal}`] || false}
                         onChange={() => handleCheck(idx, day, meal)}
                       />
@@ -120,12 +107,6 @@ const MealPlanner = () => {
           </tr>
         </tbody>
       </table>
-      <button
-        className="mt-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-        onClick={() => setNames([...names, { name: '', count: 1 }])}
-      >
-        添加员工
-      </button>
     </div>
   );
 };
