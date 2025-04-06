@@ -172,36 +172,6 @@ const MealPlanner = () => {
     }
   };
 
-// ... 保持其它部分不变
-
-const handleCheck = async (user, day, meal) => {
-  const key = `${day}-${meal}`;
-  const userIndex = names.findIndex(u => u.name === user.name);
-  if (userIndex === -1) return;
-
-  // 检查是否尝试修改他人计划（不论是勾选还是取消）
-  if (true /* future: currentUserId !== user.user_id */) {
-    const confirmEdit = window.confirm('你确定要修改他人的用餐计划吗？');
-    if (!confirmEdit) return;
-  }
-
-  const updatedNames = [...names];
-  const updatedUser = { ...updatedNames[userIndex] };
-  const updatedPlans = { ...updatedUser.plans };
-
-  if (updatedPlans[key]) {
-    delete updatedPlans[key];
-    await supabase.from('meal_plan').delete().match({ user_name: user.name, meal_date: day, meal_type: meal });
-  } else {
-    updatedPlans[key] = user.count;
-    await supabase.from('meal_plan').upsert({ user_name: user.name, meal_date: day, meal_type: meal, meal_count: user.count });
-  }
-
-  updatedUser.plans = updatedPlans;
-  updatedNames[userIndex] = updatedUser;
-  setNames(updatedNames);
-};
-  
   return (
     <div className="p-6 font-sans max-w-full overflow-x-auto">
       <h2 className="text-3xl font-bold mb-6 text-center">升龙公司德合厂用餐计划表</h2>
