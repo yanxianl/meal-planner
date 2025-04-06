@@ -23,7 +23,7 @@ const MealPlanner = () => {
     const grouped = {};
     rows.forEach(row => {
       const key = `${row.user_name}`;
-      if (!grouped[key]) grouped[key] = { name: row.user_name, count: row.meal_count || 1, plans: {} };
+      if (!grouped[key]) grouped[key] = { name: row.user_name, count: 1, plans: {} };
       grouped[key].plans[`${row.meal_date}-${row.meal_type}`] = row.meal_count;
     });
     setNames(Object.values(grouped));
@@ -57,12 +57,19 @@ const MealPlanner = () => {
     const newCount = parseInt(input, 10);
     if (!isNaN(newCount) && newCount > 0) {
       const user = names[idx];
-      const updates = Object.keys(user.plans).map(key => {
+      const updatedPlans = { ...user.plans };
+
+      const updates = Object.keys(updatedPlans).map(key => {
         const [date, type] = key.split('-');
+        updatedPlans[key] = newCount;
         return supabase.from('meal_plan').upsert({ user_name: user.name, meal_date: date, meal_type: type, meal_count: newCount });
       });
+
       await Promise.all(updates);
-      fetchData();
+
+      const updatedNames = [...names];
+      updatedNames[idx] = { ...user, count: newCount, plans: updatedPlans };
+      setNames(updatedNames);
     }
   };
 
@@ -72,7 +79,7 @@ const MealPlanner = () => {
       const newNames = [...names];
       newNames[idx].name = name;
       setNames(newNames);
-      // 创建空记录以初始化用户
+
       await supabase.from('meal_plan').upsert({ user_name: name, meal_date: format(new Date(), 'yyyy-MM-dd'), meal_type: '早', meal_count: 0 });
       fetchData();
     }
