@@ -11,6 +11,7 @@ const MealPlanner = () => {
   const [currentWeek, setCurrentWeek] = useState(new Date());
   const [data, setData] = useState([]);
   const [names, setNames] = useState([]);
+  const [previousNames, setPreviousNames] = useState([]);
 
   const startDay = startOfWeek(currentWeek, { weekStartsOn: 1 });
   const currentStart = format(startDay, 'yyyy-MM-dd');
@@ -34,9 +35,8 @@ const MealPlanner = () => {
       grouped[key].plans[`${row.meal_date}-${row.meal_type}`] = row.meal_count;
     });
 
-    // 如果是新的一周，继承上周人员
-    if (Object.keys(grouped).length === 0 && names.length > 0) {
-      const inherited = names.map(u => ({ name: u.name, count: u.count, plans: {} }));
+    if (Object.keys(grouped).length === 0 && previousNames.length > 0) {
+      const inherited = previousNames.map(u => ({ name: u.name, count: u.count, plans: {} }));
       setNames(inherited);
     } else {
       const inferred = Object.values(grouped).map(u => {
@@ -45,6 +45,7 @@ const MealPlanner = () => {
         return { ...u, count: avgCount };
       });
       setNames(inferred);
+      setPreviousNames(inferred);
     }
     setData(rows);
   };
@@ -75,13 +76,24 @@ const MealPlanner = () => {
 
   const handleCheck = async (user, day, meal) => {
     const key = `${day}-${meal}`;
-    const existing = user.plans[key];
-    if (existing) {
+    const userIndex = names.findIndex(u => u.name === user.name);
+    if (userIndex === -1) return;
+
+    const updatedNames = [...names];
+    const updatedUser = { ...updatedNames[userIndex] };
+    const updatedPlans = { ...updatedUser.plans };
+
+    if (updatedPlans[key]) {
+      delete updatedPlans[key];
       await supabase.from('meal_plan').delete().match({ user_name: user.name, meal_date: day, meal_type: meal });
     } else {
+      updatedPlans[key] = user.count;
       await supabase.from('meal_plan').upsert({ user_name: user.name, meal_date: day, meal_type: meal, meal_count: user.count });
     }
-    fetchData();
+
+    updatedUser.plans = updatedPlans;
+    updatedNames[userIndex] = updatedUser;
+    setNames(updatedNames);
   };
 
   const getMealCount = (day, meal) => {
@@ -128,7 +140,7 @@ const MealPlanner = () => {
   const deleteUser = async (user_name) => {
     if (!window.confirm(`确定删除 ${user_name} 的所有用餐计划吗？`)) return;
     await supabase.from('meal_plan').delete().eq('user_name', user_name);
-    fetchData();
+    setNames(prev => prev.filter(user => user.name !== user_name));
   };
 
   const addUser = () => {
@@ -172,7 +184,8 @@ const MealPlanner = () => {
         <tbody>
           {names.map((user, idx) => (
             <tr key={idx} className="hover:bg-gray-50">
-              <td className="border p-2 text-center text-red-500 cursor-pointer" onClick={() => deleteUser(user.name)}>
+              <td className="border p-2 text-center text-red-500 cursor-pointer"
+                  onClick={() => deleteUser(user.name)}>
                 <Trash2 size={16} />
               </td>
               <td className="border p-2">
@@ -227,64 +240,3 @@ const MealPlanner = () => {
 };
 
 export default MealPlanner;
-
-<tbody>
-  {names.map((user, idx) => (
-    <tr key={idx} className="hover:bg-gray-50">
-      <td className="border p-2 text-center text-red-500 cursor-pointer"
-          onClick={async () => {
-            if (window.confirm(`确定删除 ${user.name} 的所有用餐计划吗？`)) {
-              await supabase.from('meal_plan').delete().eq('user_name', user.name);
-              const updatedNames = names.filter((_, i) => i !== idx);
-              setNames(updatedNames);
-              fetchData();
-            }
-          }}>
-        <Trash2 size={16} />
-      </td>
-      <td className="border p-2">
-        <input
-          className="w-full"
-          placeholder="输入姓名"
-          value={user.name}
-          onChange={(e) => updateName(idx, e.target.value)}
-        />
-      </td>
-      <td className="border p-2 cursor-pointer" onClick={() => updateCount(idx)}>
-        {user.count}
-      </td>
-      {[...Array(7)].map((_, dayIdx) => (
-        meals.map((meal, mealIdx) => {
-          const day = format(addDays(startDay, dayIdx), 'yyyy-MM-dd');
-          const checked = !!user.plans?.[`${day}-${meal}`];
-          return (
-            <td key={`${dayIdx}-${meal}`} className="border p-1 text-center">
-              <input
-                type="checkbox"
-                disabled={!canCheck(addDays(startDay, dayIdx), mealIdx) || !user.name}
-                checked={checked}
-                onChange={() => handleCheck(user, day, meal)}
-              />
-            </td>
-          );
-        })
-      ))}
-    </tr>
-  ))}
-
-const handleCheck = async (user, day, meal) => {
-  const key = `${day}-${meal}`;
-  const updatedNames = names.map(u => {
-    if (u.name !== user.name) return u;
-    const updatedPlans = { ...u.plans };
-    if (updatedPlans[key]) {
-      delete updatedPlans[key];
-      supabase.from('meal_plan').delete().match({ user_name: u.name, meal_date: day, meal_type: meal });
-    } else {
-      updatedPlans[key] = u.count;
-      supabase.from('meal_plan').upsert({ user_name: u.name, meal_date: day, meal_type: meal, meal_count: u.count });
-    }
-    return { ...u, plans: updatedPlans };
-  });
-  setNames(updatedNames);
-};
