@@ -23,7 +23,7 @@ const MealPlanner = () => {
     const grouped = {};
     rows.forEach(row => {
       const key = `${row.user_name}`;
-      if (!grouped[key]) grouped[key] = { name: row.user_name, count: 1, plans: {} };
+      if (!grouped[key]) grouped[key] = { name: row.user_name, count: row.meal_count || 1, plans: {} };
       grouped[key].plans[`${row.meal_date}-${row.meal_type}`] = row.meal_count;
     });
     setNames(Object.values(grouped));
@@ -66,10 +66,28 @@ const MealPlanner = () => {
     }
   };
 
+  const updateName = async (idx, name) => {
+    const oldName = names[idx].name;
+    if (!oldName && name) {
+      setNames(prev => {
+        const updated = [...prev];
+        updated[idx].name = name;
+        return updated;
+      });
+    }
+  };
+
   const deleteUser = async (user_name) => {
     if (!window.confirm(`确定删除 ${user_name} 的所有用餐计划吗？`)) return;
     await supabase.from('meal_plan').delete().eq('user_name', user_name);
     fetchData();
+  };
+
+  const addUser = () => {
+    const name = prompt("请输入员工姓名:");
+    if (name) {
+      setNames([...names, { name, count: 1, plans: {} }]);
+    }
   };
 
   return (
@@ -80,7 +98,7 @@ const MealPlanner = () => {
         <span className="text-xl font-semibold">
           {format(startDay, 'dd/MM/yyyy')} - {format(addDays(startDay, 6), 'dd/MM/yyyy')}
         </span>
-        <ChevronRight className="cursor-pointer" onClick={() => setCurrentWeek(addDays(currentWeek, 7))} />
+        <ChevronRight className="cursor-pointer" onClick={() => setCurrentWeek(addDays(startDay, 7))} />
       </div>
 
       <table className="min-w-full border border-gray-300">
@@ -114,7 +132,7 @@ const MealPlanner = () => {
                   className="w-full"
                   placeholder="输入姓名"
                   value={user.name}
-                  readOnly
+                  onChange={(e) => updateName(idx, e.target.value)}
                 />
               </td>
               <td className="border p-2 cursor-pointer" onClick={() => updateCount(idx)}>
@@ -128,7 +146,7 @@ const MealPlanner = () => {
                     <td key={`${dayIdx}-${meal}`} className="border p-1 text-center">
                       <input
                         type="checkbox"
-                        disabled={!canCheck(addDays(startDay, dayIdx), mealIdx)}
+                        disabled={!canCheck(addDays(startDay, dayIdx), mealIdx) || !user.name}
                         checked={checked}
                         onChange={() => handleCheck(user, day, meal)}
                       />
@@ -152,7 +170,7 @@ const MealPlanner = () => {
       </table>
       <button
         className="mt-4 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-        onClick={() => setNames([...names, { name: '', count: 1, plans: {} }])}
+        onClick={addUser}
       >
         添加员工
       </button>
