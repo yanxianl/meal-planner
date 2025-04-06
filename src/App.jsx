@@ -68,12 +68,13 @@ const MealPlanner = () => {
 
   const updateName = async (idx, name) => {
     const oldName = names[idx].name;
-    if (!oldName && name) {
-      setNames(prev => {
-        const updated = [...prev];
-        updated[idx].name = name;
-        return updated;
-      });
+    if (name && name !== oldName) {
+      const newNames = [...names];
+      newNames[idx].name = name;
+      setNames(newNames);
+      // 创建空记录以初始化用户
+      await supabase.from('meal_plan').upsert({ user_name: name, meal_date: format(new Date(), 'yyyy-MM-dd'), meal_type: '早', meal_count: 0 });
+      fetchData();
     }
   };
 
