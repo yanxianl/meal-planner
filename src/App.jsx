@@ -172,14 +172,14 @@ const MealPlanner = () => {
     }
   };
 
-  // ... 省略前置代码保持不变
+// ... 保持其它部分不变
 
 const handleCheck = async (user, day, meal) => {
   const key = `${day}-${meal}`;
   const userIndex = names.findIndex(u => u.name === user.name);
   if (userIndex === -1) return;
 
-  // 如果当前用户不是这个名字，可以加个拦截（假设将来有 auth 实现）
+  // 检查是否尝试修改他人计划（不论是勾选还是取消）
   if (true /* future: currentUserId !== user.user_id */) {
     const confirmEdit = window.confirm('你确定要修改他人的用餐计划吗？');
     if (!confirmEdit) return;
@@ -201,7 +201,7 @@ const handleCheck = async (user, day, meal) => {
   updatedNames[userIndex] = updatedUser;
   setNames(updatedNames);
 };
-
+  
   return (
     <div className="p-6 font-sans max-w-full overflow-x-auto">
       <h2 className="text-3xl font-bold mb-6 text-center">升龙公司德合厂用餐计划表</h2>
