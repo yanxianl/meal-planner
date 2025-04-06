@@ -271,3 +271,20 @@ export default MealPlanner;
       ))}
     </tr>
   ))}
+
+const handleCheck = async (user, day, meal) => {
+  const key = `${day}-${meal}`;
+  const updatedNames = names.map(u => {
+    if (u.name !== user.name) return u;
+    const updatedPlans = { ...u.plans };
+    if (updatedPlans[key]) {
+      delete updatedPlans[key];
+      supabase.from('meal_plan').delete().match({ user_name: u.name, meal_date: day, meal_type: meal });
+    } else {
+      updatedPlans[key] = u.count;
+      supabase.from('meal_plan').upsert({ user_name: u.name, meal_date: day, meal_type: meal, meal_count: u.count });
+    }
+    return { ...u, plans: updatedPlans };
+  });
+  setNames(updatedNames);
+};
