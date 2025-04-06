@@ -43,29 +43,53 @@ const MealPlanner = () => {
     setNames(inferred);
   };
 
+  const getMealCount = (day, meal) => {
+    return names.reduce((sum, user) => {
+      const key = `${format(day, 'yyyy-MM-dd')}-${meal}`;
+      return sum + (user.plans?.[key] ? user.count : 0);
+    }, 0);
+  };
+
+  const handleCheck = async (user, day, meal) => {
+    const key = `${day}-${meal}`;
+    const userIndex = names.findIndex(u => u.name === user.name);
+    if (userIndex === -1) return;
+
+    const updatedNames = [...names];
+    const updatedUser = { ...updatedNames[userIndex] };
+    const updatedPlans = { ...updatedUser.plans };
+
+    if (updatedPlans[key]) {
+      delete updatedPlans[key];
+      await supabase.from('meal_plan').delete().match({ user_name: user.name, meal_date: day, meal_type: meal });
+    } else {
+      updatedPlans[key] = user.count;
+      await supabase.from('meal_plan').upsert({ user_name: user.name, meal_date: day, meal_type: meal, meal_count: user.count });
+    }
+
+    updatedUser.plans = updatedPlans;
+    updatedNames[userIndex] = updatedUser;
+    setNames(updatedNames);
+  };
+
   const openEditor = (user) => {
     if (window.confirm(`你确定要修改 ${user.name} 的用餐计划吗？`)) {
-      setEditingUser(user);
+      setEditingUser({ ...user });
     }
   };
 
   const saveEdits = async () => {
     const updated = { ...editingUser };
-    await supabase.from('meal_plan').delete().eq('user_name', updated.name).gte('meal_date', currentStart).lte('meal_date', currentEnd);
-
-    const inserts = Object.entries(updated.plans).map(([key, val]) => {
+    const updates = Object.entries(updated.plans).map(([key, _]) => {
       const [date, meal] = key.split('-');
-      return {
+      return supabase.from('meal_plan').upsert({
         user_name: updated.name,
         meal_date: date,
         meal_type: meal,
         meal_count: updated.count,
-      };
+      });
     });
-
-    if (inserts.length) {
-      await supabase.from('meal_plan').upsert(inserts);
-    }
+    await Promise.all(updates);
     setEditingUser(null);
     fetchData();
   };
@@ -78,13 +102,6 @@ const MealPlanner = () => {
       copy.plans[key] = copy.count;
     }
     setEditingUser(copy);
-  };
-
-  const getMealCount = (day, meal) => {
-    return names.reduce((sum, user) => {
-      const key = `${format(day, 'yyyy-MM-dd')}-${meal}`;
-      return sum + (user.plans?.[key] ? user.count : 0);
-    }, 0);
   };
 
   return (
@@ -115,7 +132,7 @@ const MealPlanner = () => {
             <tr key={idx} className="hover:bg-gray-50 cursor-pointer" onClick={() => openEditor(user)}>
               <td className="border p-2">{user.name}</td>
               <td className="border p-2">{user.count}</td>
-              {[...Array(7)].map((_, dayIdx) => (
+              {[...Array(7)].map((_, dayIdx) =>
                 meals.map((meal) => {
                   const day = format(addDays(startDay, dayIdx), 'yyyy-MM-dd');
                   const checked = !!user.plans?.[`${day}-${meal}`];
@@ -125,18 +142,18 @@ const MealPlanner = () => {
                     </td>
                   );
                 })
-              ))}
+              )}
             </tr>
           ))}
           <tr className="bg-gray-200 font-bold">
             <td className="border p-2" colSpan={2}>合计人数</td>
-            {[...Array(7)].map((_, dayIdx) => (
+            {[...Array(7)].map((_, dayIdx) =>
               meals.map((meal) => (
                 <td key={`total-${dayIdx}-${meal}`} className="border p-1 text-center">
                   {getMealCount(addDays(startDay, dayIdx), meal)}
                 </td>
               ))
-            ))}
+            )}
           </tr>
         </tbody>
       </table>
@@ -166,7 +183,7 @@ const MealPlanner = () => {
               </thead>
               <tbody>
                 <tr>
-                  {[...Array(7)].map((_, dayIdx) => (
+                  {[...Array(7)].map((_, dayIdx) =>
                     meals.map((meal) => {
                       const date = format(addDays(startDay, dayIdx), 'yyyy-MM-dd');
                       const key = `${date}-${meal}`;
@@ -180,7 +197,7 @@ const MealPlanner = () => {
                         </td>
                       );
                     })
-                  ))}
+                  )}
                 </tr>
               </tbody>
             </table>
