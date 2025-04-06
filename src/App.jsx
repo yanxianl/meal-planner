@@ -11,22 +11,15 @@ const MealPlanner = () => {
   const [currentWeek, setCurrentWeek] = useState(new Date());
   const [data, setData] = useState([]);
   const [names, setNames] = useState([]);
-  const [previousNames, setPreviousNames] = useState([]);
-  const [userIdentity, setUserIdentity] = useState('');
+  const [globalUserMap, setGlobalUserMap] = useState({});
 
   const startDay = startOfWeek(currentWeek, { weekStartsOn: 1 });
   const currentStart = format(startDay, 'yyyy-MM-dd');
   const currentEnd = format(addDays(startDay, 6), 'yyyy-MM-dd');
 
   useEffect(() => {
-    getCurrentUser();
     fetchData();
   }, [currentWeek]);
-
-  const getCurrentUser = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) setUserIdentity(user.email);
-  };
 
   const fetchData = async () => {
     const { data: rows } = await supabase
@@ -38,18 +31,30 @@ const MealPlanner = () => {
     const grouped = {};
     rows.forEach(row => {
       const key = row.user_name;
-      if (!grouped[key]) grouped[key] = { name: row.user_name, count: row.meal_count || 1, plans: {}, email: row.owner_email };
+      if (!grouped[key]) grouped[key] = { name: row.user_name, count: 1, plans: {} };
       grouped[key].plans[`${row.meal_date}-${row.meal_type}`] = row.meal_count;
     });
 
-    if (Object.keys(grouped).length === 0 && previousNames.length > 0) {
-      const inherited = previousNames.map(u => ({ name: u.name, count: u.count, plans: {}, email: u.email }));
-      setNames(inherited);
-    } else {
-      const inferred = Object.values(grouped);
+    const inferred = Object.values(grouped).map(u => {
+      const mealCounts = Object.values(u.plans);
+      const avgCount = mealCounts.length ? Math.round(mealCounts.reduce((a, b) => a + b, 0) / mealCounts.length) : 1;
+      return { ...u, count: avgCount };
+    });
+
+    if (inferred.length > 0) {
       setNames(inferred);
-      setPreviousNames(inferred);
+      setGlobalUserMap(prev => {
+        const updated = { ...prev };
+        inferred.forEach(u => {
+          updated[u.name] = u.count;
+        });
+        return updated;
+      });
+    } else {
+      const inherited = Object.entries(globalUserMap).map(([name, count]) => ({ name, count, plans: {} }));
+      setNames(inherited);
     }
+
     setData(rows);
   };
 
@@ -60,8 +65,7 @@ const MealPlanner = () => {
         user_name: user.name,
         meal_date,
         meal_type,
-        meal_count: user.count,
-        owner_email: userIdentity,
+        meal_count: user.count || count || 1,
       };
     });
     if (records.length > 0) {
@@ -79,7 +83,6 @@ const MealPlanner = () => {
   };
 
   const handleCheck = async (user, day, meal) => {
-    if (user.email !== userIdentity) return;
     const key = `${day}-${meal}`;
     const userIndex = names.findIndex(u => u.name === user.name);
     if (userIndex === -1) return;
@@ -93,7 +96,7 @@ const MealPlanner = () => {
       await supabase.from('meal_plan').delete().match({ user_name: user.name, meal_date: day, meal_type: meal });
     } else {
       updatedPlans[key] = user.count;
-      await supabase.from('meal_plan').upsert({ user_name: user.name, meal_date: day, meal_type: meal, meal_count: user.count, owner_email: userIdentity });
+      await supabase.from('meal_plan').upsert({ user_name: user.name, meal_date: day, meal_type: meal, meal_count: user.count });
     }
 
     updatedUser.plans = updatedPlans;
@@ -114,7 +117,6 @@ const MealPlanner = () => {
   };
 
   const updateCount = async (idx) => {
-    if (names[idx].email !== userIdentity) return;
     const input = prompt("请输入用餐人数:", names[idx].count);
     const newCount = parseInt(input, 10);
     if (!isNaN(newCount) && newCount > 0) {
@@ -123,35 +125,50 @@ const MealPlanner = () => {
       const updates = Object.keys(updatedPlans).map(key => {
         const [date, type] = key.split('-');
         updatedPlans[key] = newCount;
-        return supabase.from('meal_plan').upsert({ user_name: user.name, meal_date: date, meal_type: type, meal_count: newCount, owner_email: userIdentity });
+        return supabase.from('meal_plan').upsert({ user_name: user.name, meal_date: date, meal_type: type, meal_count: newCount });
       });
       await Promise.all(updates);
+
       const updatedNames = [...names];
       updatedNames[idx] = { ...user, count: newCount, plans: updatedPlans };
       setNames(updatedNames);
+      setGlobalUserMap(prev => ({ ...prev, [user.name]: newCount }));
     }
   };
 
   const updateName = async (idx, name) => {
-    if (names[idx].email && names[idx].email !== userIdentity) return;
-    const newNames = [...names];
-    newNames[idx].name = name;
-    newNames[idx].email = userIdentity;
-    setNames(newNames);
-    await supabase.from('meal_plan').upsert({ user_name: name, meal_date: currentStart, meal_type: '早', meal_count: 0, owner_email: userIdentity });
+    const oldName = names[idx].name;
+    if (name && name !== oldName) {
+      const newNames = [...names];
+      newNames[idx].name = name;
+      setNames(newNames);
+      await supabase.from('meal_plan').upsert({ user_name: name, meal_date: currentStart, meal_type: '早', meal_count: 0 });
+      setGlobalUserMap(prev => {
+        const updated = { ...prev };
+        delete updated[oldName];
+        updated[name] = newNames[idx].count;
+        return updated;
+      });
+    }
   };
 
-  const deleteUser = async (user_name, email) => {
-    if (email !== userIdentity) return;
+  const deleteUser = async (user_name) => {
     if (!window.confirm(`确定删除 ${user_name} 的所有用餐计划吗？`)) return;
     await supabase.from('meal_plan').delete().eq('user_name', user_name);
     setNames(prev => prev.filter(user => user.name !== user_name));
+    setGlobalUserMap(prev => {
+      const updated = { ...prev };
+      delete updated[user_name];
+      return updated;
+    });
   };
 
   const addUser = () => {
     const name = prompt("请输入员工姓名:");
     if (name) {
-      setNames([...names, { name, count: 1, plans: {}, email: userIdentity }]);
+      const count = globalUserMap[name] || 1;
+      setNames([...names, { name, count, plans: {} }]);
+      setGlobalUserMap(prev => ({ ...prev, [name]: count }));
     }
   };
 
@@ -190,8 +207,8 @@ const MealPlanner = () => {
           {names.map((user, idx) => (
             <tr key={idx} className="hover:bg-gray-50">
               <td className="border p-2 text-center text-red-500 cursor-pointer"
-                  onClick={() => deleteUser(user.name, user.email)}>
-                {user.email === userIdentity && <Trash2 size={16} />}
+                  onClick={() => deleteUser(user.name)}>
+                <Trash2 size={16} />
               </td>
               <td className="border p-2">
                 <input
@@ -199,11 +216,9 @@ const MealPlanner = () => {
                   placeholder="输入姓名"
                   value={user.name}
                   onChange={(e) => updateName(idx, e.target.value)}
-                  readOnly={user.email && user.email !== userIdentity}
                 />
               </td>
-              <td className="border p-2 cursor-pointer"
-                  onClick={() => updateCount(idx)}>
+              <td className="border p-2 cursor-pointer" onClick={() => updateCount(idx)}>
                 {user.count}
               </td>
               {[...Array(7)].map((_, dayIdx) => (
@@ -214,7 +229,7 @@ const MealPlanner = () => {
                     <td key={`${dayIdx}-${meal}`} className="border p-1 text-center">
                       <input
                         type="checkbox"
-                        disabled={!canCheck(addDays(startDay, dayIdx), mealIdx) || !user.name || user.email !== userIdentity}
+                        disabled={!canCheck(addDays(startDay, dayIdx), mealIdx) || !user.name}
                         checked={checked}
                         onChange={() => handleCheck(user, day, meal)}
                       />
