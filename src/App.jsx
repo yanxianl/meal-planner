@@ -9,9 +9,8 @@ const mealDeadlines = [6, 9, 14];
 
 const MealPlanner = () => {
   const [currentWeek, setCurrentWeek] = useState(new Date());
-  const [data, setData] = useState([]);
   const [names, setNames] = useState([]);
-  const [globalUserMap, setGlobalUserMap] = useState({});
+  const [editingUser, setEditingUser] = useState(null);
 
   const startDay = startOfWeek(currentWeek, { weekStartsOn: 1 });
   const currentStart = format(startDay, 'yyyy-MM-dd');
@@ -41,67 +40,44 @@ const MealPlanner = () => {
       return { ...u, count: avgCount };
     });
 
-    if (inferred.length > 0) {
-      setNames(inferred);
-      setGlobalUserMap(prev => {
-        const updated = { ...prev };
-        inferred.forEach(u => {
-          updated[u.name] = u.count;
-        });
-        return updated;
-      });
-    } else {
-      const inherited = Object.entries(globalUserMap).map(([name, count]) => ({ name, count, plans: {} }));
-      setNames(inherited);
-    }
-
-    setData(rows);
+    setNames(inferred);
   };
 
-  const persistUserPlans = async (user) => {
-    const records = Object.entries(user.plans).map(([key, count]) => {
-      const [meal_date, meal_type] = key.split('-');
+  const openEditor = (user) => {
+    if (window.confirm(`你确定要修改 ${user.name} 的用餐计划吗？`)) {
+      setEditingUser(user);
+    }
+  };
+
+  const saveEdits = async () => {
+    const updated = { ...editingUser };
+    await supabase.from('meal_plan').delete().eq('user_name', updated.name).gte('meal_date', currentStart).lte('meal_date', currentEnd);
+
+    const inserts = Object.entries(updated.plans).map(([key, val]) => {
+      const [date, meal] = key.split('-');
       return {
-        user_name: user.name,
-        meal_date,
-        meal_type,
-        meal_count: user.count || count || 1,
+        user_name: updated.name,
+        meal_date: date,
+        meal_type: meal,
+        meal_count: updated.count,
       };
     });
-    if (records.length > 0) {
-      await Promise.all(records.map(r => supabase.from('meal_plan').upsert(r)));
+
+    if (inserts.length) {
+      await supabase.from('meal_plan').upsert(inserts);
     }
+    setEditingUser(null);
+    fetchData();
   };
 
-  const changeWeek = async (direction) => {
-    for (const user of names) {
-      if (user.name && Object.keys(user.plans).length > 0) {
-        await persistUserPlans(user);
-      }
-    }
-    setCurrentWeek(addDays(currentWeek, direction * 7));
-  };
-
-  const handleCheck = async (user, day, meal) => {
-    const key = `${day}-${meal}`;
-    const userIndex = names.findIndex(u => u.name === user.name);
-    if (userIndex === -1) return;
-
-    const updatedNames = [...names];
-    const updatedUser = { ...updatedNames[userIndex] };
-    const updatedPlans = { ...updatedUser.plans };
-
-    if (updatedPlans[key]) {
-      delete updatedPlans[key];
-      await supabase.from('meal_plan').delete().match({ user_name: user.name, meal_date: day, meal_type: meal });
+  const togglePlan = (key) => {
+    const copy = { ...editingUser };
+    if (copy.plans[key]) {
+      delete copy.plans[key];
     } else {
-      updatedPlans[key] = user.count;
-      await supabase.from('meal_plan').upsert({ user_name: user.name, meal_date: day, meal_type: meal, meal_count: user.count });
+      copy.plans[key] = copy.count;
     }
-
-    updatedUser.plans = updatedPlans;
-    updatedNames[userIndex] = updatedUser;
-    setNames(updatedNames);
+    setEditingUser(copy);
   };
 
   const getMealCount = (day, meal) => {
@@ -111,158 +87,41 @@ const MealPlanner = () => {
     }, 0);
   };
 
-  const canCheck = (day, mealIdx) => {
-    const deadline = setMinutes(setHours(day, mealDeadlines[mealIdx]), 0);
-    return isBefore(new Date(), deadline);
-  };
-
-  const updateCount = async (idx) => {
-    const input = prompt("请输入用餐人数:", names[idx].count);
-    const newCount = parseInt(input, 10);
-    if (!isNaN(newCount) && newCount > 0) {
-      const user = names[idx];
-      const updatedPlans = { ...user.plans };
-      const updates = Object.keys(updatedPlans).map(key => {
-        const [date, type] = key.split('-');
-        updatedPlans[key] = newCount;
-        return supabase.from('meal_plan').upsert({ user_name: user.name, meal_date: date, meal_type: type, meal_count: newCount });
-      });
-      await Promise.all(updates);
-
-      const updatedNames = [...names];
-      updatedNames[idx] = { ...user, count: newCount, plans: updatedPlans };
-      setNames(updatedNames);
-      setGlobalUserMap(prev => ({ ...prev, [user.name]: newCount }));
-    }
-  };
-
-  const updateName = async (idx, name) => {
-    const oldName = names[idx].name;
-    if (name && name !== oldName) {
-      const newNames = [...names];
-      newNames[idx].name = name;
-      setNames(newNames);
-      await supabase.from('meal_plan').upsert({ user_name: name, meal_date: currentStart, meal_type: '早', meal_count: 0 });
-      setGlobalUserMap(prev => {
-        const updated = { ...prev };
-        delete updated[oldName];
-        updated[name] = newNames[idx].count;
-        return updated;
-      });
-    }
-  };
-
-  const deleteUser = async (user_name) => {
-    if (!window.confirm(`确定删除 ${user_name} 的所有用餐计划吗？`)) return;
-    await supabase.from('meal_plan').delete().eq('user_name', user_name);
-    setNames(prev => prev.filter(user => user.name !== user_name));
-    setGlobalUserMap(prev => {
-      const updated = { ...prev };
-      delete updated[user_name];
-      return updated;
-    });
-  };
-
-  const addUser = () => {
-    const name = prompt("请输入员工姓名:");
-    if (name) {
-      const count = globalUserMap[name] || 1;
-      setNames([...names, { name, count, plans: {} }]);
-      setGlobalUserMap(prev => ({ ...prev, [name]: count }));
-    }
-  };
-
-// ... 保持其它部分不变
-
-const handleCheck = async (user, day, meal) => {
-  const key = `${day}-${meal}`;
-  const userIndex = names.findIndex(u => u.name === user.name);
-  if (userIndex === -1) return;
-
-  // 检查是否尝试修改他人计划（不论是勾选还是取消）
-  if (true /* future: currentUserId !== user.user_id */) {
-    const confirmEdit = window.confirm('你确定要修改他人的用餐计划吗？');
-    if (!confirmEdit) return;
-  }
-
-  const updatedNames = [...names];
-  const updatedUser = { ...updatedNames[userIndex] };
-  const updatedPlans = { ...updatedUser.plans };
-
-  if (updatedPlans[key]) {
-    delete updatedPlans[key];
-    await supabase.from('meal_plan').delete().match({ user_name: user.name, meal_date: day, meal_type: meal });
-  } else {
-    updatedPlans[key] = user.count;
-    await supabase.from('meal_plan').upsert({ user_name: user.name, meal_date: day, meal_type: meal, meal_count: user.count });
-  }
-
-  updatedUser.plans = updatedPlans;
-  updatedNames[userIndex] = updatedUser;
-  setNames(updatedNames);
-};
-  
   return (
     <div className="p-6 font-sans max-w-full overflow-x-auto">
       <h2 className="text-3xl font-bold mb-6 text-center">升龙公司德合厂用餐计划表</h2>
       <div className="flex items-center justify-between mb-6">
-        <ChevronLeft className="cursor-pointer" onClick={() => changeWeek(-1)} />
+        <ChevronLeft className="cursor-pointer" onClick={() => setCurrentWeek(addDays(currentWeek, -7))} />
         <span className="text-xl font-semibold">
           {format(startDay, 'dd/MM/yyyy')} - {format(addDays(startDay, 6), 'dd/MM/yyyy')}
         </span>
-        <ChevronRight className="cursor-pointer" onClick={() => changeWeek(1)} />
+        <ChevronRight className="cursor-pointer" onClick={() => setCurrentWeek(addDays(currentWeek, 7))} />
       </div>
 
       <table className="min-w-full border border-gray-300">
         <thead className="bg-gray-100">
           <tr>
-            <th className="border p-2" rowSpan={2}>操作</th>
-            <th className="border p-2" rowSpan={2}>姓名</th>
-            <th className="border p-2" rowSpan={2}>用餐人数</th>
+            <th className="border p-2">姓名</th>
+            <th className="border p-2">用餐人数</th>
             {[...Array(7)].map((_, idx) => (
               <th key={idx} className="border p-2" colSpan={3}>
                 {format(addDays(startDay, idx), 'dd/MM EEE', { locale: zhCN })}
               </th>
             ))}
           </tr>
-          <tr>
-            {[...Array(7)].map((_, idx) => (
-              meals.map(meal => (
-                <th key={`${idx}-${meal}`} className="border p-1 bg-gray-50">{meal}</th>
-              ))
-            ))}
-          </tr>
         </thead>
         <tbody>
           {names.map((user, idx) => (
-            <tr key={idx} className="hover:bg-gray-50">
-              <td className="border p-2 text-center text-red-500 cursor-pointer"
-                  onClick={() => deleteUser(user.name)}>
-                <Trash2 size={16} />
-              </td>
-              <td className="border p-2">
-                <input
-                  className="w-full"
-                  placeholder="输入姓名"
-                  value={user.name}
-                  onChange={(e) => updateName(idx, e.target.value)}
-                />
-              </td>
-              <td className="border p-2 cursor-pointer" onClick={() => updateCount(idx)}>
-                {user.count}
-              </td>
+            <tr key={idx} className="hover:bg-gray-50 cursor-pointer" onClick={() => openEditor(user)}>
+              <td className="border p-2">{user.name}</td>
+              <td className="border p-2">{user.count}</td>
               {[...Array(7)].map((_, dayIdx) => (
-                meals.map((meal, mealIdx) => {
+                meals.map((meal) => {
                   const day = format(addDays(startDay, dayIdx), 'yyyy-MM-dd');
                   const checked = !!user.plans?.[`${day}-${meal}`];
                   return (
                     <td key={`${dayIdx}-${meal}`} className="border p-1 text-center">
-                      <input
-                        type="checkbox"
-                        disabled={!canCheck(addDays(startDay, dayIdx), mealIdx) || !user.name}
-                        checked={checked}
-                        onChange={() => handleCheck(user, day, meal)}
-                      />
+                      <input type="checkbox" checked={checked} disabled readOnly />
                     </td>
                   );
                 })
@@ -270,9 +129,9 @@ const handleCheck = async (user, day, meal) => {
             </tr>
           ))}
           <tr className="bg-gray-200 font-bold">
-            <td className="border p-2 text-center" colSpan={3}>合计人数</td>
+            <td className="border p-2" colSpan={2}>合计人数</td>
             {[...Array(7)].map((_, dayIdx) => (
-              meals.map((meal, mealIdx) => (
+              meals.map((meal) => (
                 <td key={`total-${dayIdx}-${meal}`} className="border p-1 text-center">
                   {getMealCount(addDays(startDay, dayIdx), meal)}
                 </td>
@@ -281,12 +140,57 @@ const handleCheck = async (user, day, meal) => {
           </tr>
         </tbody>
       </table>
-      <button
-        className="mt-4 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-        onClick={addUser}
-      >
-        添加员工
-      </button>
+
+      {editingUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg shadow-lg w-[90%] max-w-3xl">
+            <h3 className="text-xl font-semibold mb-4">编辑：{editingUser.name}</h3>
+            <div className="mb-2">
+              <label className="mr-2">用餐人数:</label>
+              <input
+                type="number"
+                value={editingUser.count}
+                onChange={(e) => setEditingUser({ ...editingUser, count: parseInt(e.target.value) || 1 })}
+                className="border rounded px-2 py-1 w-20"
+              />
+            </div>
+            <table className="min-w-full border">
+              <thead>
+                <tr>
+                  {[...Array(7)].map((_, dayIdx) => (
+                    <th key={dayIdx} colSpan={3} className="border px-2 py-1">
+                      {format(addDays(startDay, dayIdx), 'dd/MM EEE', { locale: zhCN })}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  {[...Array(7)].map((_, dayIdx) => (
+                    meals.map((meal) => {
+                      const date = format(addDays(startDay, dayIdx), 'yyyy-MM-dd');
+                      const key = `${date}-${meal}`;
+                      return (
+                        <td key={key} className="border p-1 text-center">
+                          <input
+                            type="checkbox"
+                            checked={!!editingUser.plans[key]}
+                            onChange={() => togglePlan(key)}
+                          />
+                        </td>
+                      );
+                    })
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+            <div className="flex justify-end gap-4 mt-4">
+              <button onClick={() => setEditingUser(null)} className="px-4 py-2 border rounded">取消</button>
+              <button onClick={saveEdits} className="px-4 py-2 bg-blue-600 text-white rounded">保存</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
