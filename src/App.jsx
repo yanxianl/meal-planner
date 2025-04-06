@@ -19,7 +19,15 @@ const MealPlanner = () => {
   }, [currentWeek]);
 
   const fetchData = async () => {
-    const { data: rows } = await supabase.from('meal_plan').select('*');
+    const start = format(startDay, 'yyyy-MM-dd');
+    const end = format(addDays(startDay, 6), 'yyyy-MM-dd');
+
+    const { data: rows } = await supabase
+      .from('meal_plan')
+      .select('*')
+      .gte('meal_date', start)
+      .lte('meal_date', end);
+
     const grouped = {};
     rows.forEach(row => {
       const key = `${row.user_name}`;
@@ -30,9 +38,33 @@ const MealPlanner = () => {
     setData(rows);
   };
 
+  const persistUserPlans = async (user) => {
+    const records = Object.entries(user.plans).map(([key, count]) => {
+      const [meal_date, meal_type] = key.split('-');
+      return {
+        user_name: user.name,
+        meal_date,
+        meal_type,
+        meal_count: user.count || count || 1,
+      };
+    });
+    if (records.length > 0) {
+      await Promise.all(records.map(r => supabase.from('meal_plan').upsert(r)));
+    }
+  };
+
+  const changeWeek = async (direction) => {
+    for (const user of names) {
+      if (user.name && Object.keys(user.plans).length > 0) {
+        await persistUserPlans(user);
+      }
+    }
+    setCurrentWeek(addDays(currentWeek, direction * 7));
+  };
+
   const handleCheck = async (user, day, meal) => {
     const key = `${day}-${meal}`;
-    const existing = user.plans[key] || 0;
+    const existing = user.plans[key];
     if (existing) {
       await supabase.from('meal_plan').delete().match({ user_name: user.name, meal_date: day, meal_type: meal });
     } else {
@@ -58,15 +90,12 @@ const MealPlanner = () => {
     if (!isNaN(newCount) && newCount > 0) {
       const user = names[idx];
       const updatedPlans = { ...user.plans };
-
       const updates = Object.keys(updatedPlans).map(key => {
         const [date, type] = key.split('-');
         updatedPlans[key] = newCount;
         return supabase.from('meal_plan').upsert({ user_name: user.name, meal_date: date, meal_type: type, meal_count: newCount });
       });
-
       await Promise.all(updates);
-
       const updatedNames = [...names];
       updatedNames[idx] = { ...user, count: newCount, plans: updatedPlans };
       setNames(updatedNames);
@@ -79,7 +108,6 @@ const MealPlanner = () => {
       const newNames = [...names];
       newNames[idx].name = name;
       setNames(newNames);
-
       await supabase.from('meal_plan').upsert({ user_name: name, meal_date: format(new Date(), 'yyyy-MM-dd'), meal_type: '早', meal_count: 0 });
       fetchData();
     }
@@ -102,11 +130,11 @@ const MealPlanner = () => {
     <div className="p-6 font-sans max-w-full overflow-x-auto">
       <h2 className="text-3xl font-bold mb-6 text-center">升龙公司德合厂用餐计划表</h2>
       <div className="flex items-center justify-between mb-6">
-        <ChevronLeft className="cursor-pointer" onClick={() => setCurrentWeek(addDays(currentWeek, -7))} />
+        <ChevronLeft className="cursor-pointer" onClick={() => changeWeek(-1)} />
         <span className="text-xl font-semibold">
           {format(startDay, 'dd/MM/yyyy')} - {format(addDays(startDay, 6), 'dd/MM/yyyy')}
         </span>
-        <ChevronRight className="cursor-pointer" onClick={() => setCurrentWeek(addDays(startDay, 7))} />
+        <ChevronRight className="cursor-pointer" onClick={() => changeWeek(1)} />
       </div>
 
       <table className="min-w-full border border-gray-300">
