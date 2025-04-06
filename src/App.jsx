@@ -13,28 +13,39 @@ const MealPlanner = () => {
   const [names, setNames] = useState([]);
 
   const startDay = startOfWeek(currentWeek, { weekStartsOn: 1 });
+  const currentStart = format(startDay, 'yyyy-MM-dd');
+  const currentEnd = format(addDays(startDay, 6), 'yyyy-MM-dd');
 
   useEffect(() => {
     fetchData();
   }, [currentWeek]);
 
   const fetchData = async () => {
-    const start = format(startDay, 'yyyy-MM-dd');
-    const end = format(addDays(startDay, 6), 'yyyy-MM-dd');
-
     const { data: rows } = await supabase
       .from('meal_plan')
       .select('*')
-      .gte('meal_date', start)
-      .lte('meal_date', end);
+      .gte('meal_date', currentStart)
+      .lte('meal_date', currentEnd);
 
     const grouped = {};
     rows.forEach(row => {
-      const key = `${row.user_name}`;
+      const key = row.user_name;
       if (!grouped[key]) grouped[key] = { name: row.user_name, count: 1, plans: {} };
       grouped[key].plans[`${row.meal_date}-${row.meal_type}`] = row.meal_count;
     });
-    setNames(Object.values(grouped));
+
+    // 如果是新的一周，继承上周人员
+    if (Object.keys(grouped).length === 0 && names.length > 0) {
+      const inherited = names.map(u => ({ name: u.name, count: u.count, plans: {} }));
+      setNames(inherited);
+    } else {
+      const inferred = Object.values(grouped).map(u => {
+        const mealCounts = Object.values(u.plans);
+        const avgCount = mealCounts.length ? Math.round(mealCounts.reduce((a, b) => a + b, 0) / mealCounts.length) : 1;
+        return { ...u, count: avgCount };
+      });
+      setNames(inferred);
+    }
     setData(rows);
   };
 
@@ -74,9 +85,10 @@ const MealPlanner = () => {
   };
 
   const getMealCount = (day, meal) => {
-    return data
-      .filter(row => row.meal_date === format(day, 'yyyy-MM-dd') && row.meal_type === meal)
-      .reduce((sum, row) => sum + (row.meal_count || 0), 0);
+    return names.reduce((sum, user) => {
+      const key = `${format(day, 'yyyy-MM-dd')}-${meal}`;
+      return sum + (user.plans?.[key] ? user.count : 0);
+    }, 0);
   };
 
   const canCheck = (day, mealIdx) => {
@@ -108,7 +120,7 @@ const MealPlanner = () => {
       const newNames = [...names];
       newNames[idx].name = name;
       setNames(newNames);
-      await supabase.from('meal_plan').upsert({ user_name: name, meal_date: format(new Date(), 'yyyy-MM-dd'), meal_type: '早', meal_count: 0 });
+      await supabase.from('meal_plan').upsert({ user_name: name, meal_date: currentStart, meal_type: '早', meal_count: 0 });
       fetchData();
     }
   };
@@ -177,7 +189,7 @@ const MealPlanner = () => {
               {[...Array(7)].map((_, dayIdx) => (
                 meals.map((meal, mealIdx) => {
                   const day = format(addDays(startDay, dayIdx), 'yyyy-MM-dd');
-                  const checked = !!user.plans[`${day}-${meal}`];
+                  const checked = !!user.plans?.[`${day}-${meal}`];
                   return (
                     <td key={`${dayIdx}-${meal}`} className="border p-1 text-center">
                       <input
